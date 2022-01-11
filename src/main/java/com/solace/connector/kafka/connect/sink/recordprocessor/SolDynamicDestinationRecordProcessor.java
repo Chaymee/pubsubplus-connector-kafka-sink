@@ -26,10 +26,17 @@ import com.solacesystems.jcsmp.SDTException;
 import com.solacesystems.jcsmp.SDTMap;
 import com.solacesystems.jcsmp.Topic;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
+import org.apache.avro.Schema;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.Decoder;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.kafka.connect.sink.SinkRecord;
+
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,19 +57,55 @@ public class SolDynamicDestinationRecordProcessor implements SolRecordProcessorI
     BytesXMLMessage msg = JCSMPFactory.onlyInstance().createMessage(BytesXMLMessage.class);
     
     // Add Record Topic,Partition,Offset to Solace Msg
+    log.info("***Hello we are in the record processor***");
     String kafkaTopic = record.topic();
     msg.setApplicationMessageType("ResendOfKafkaTopic: " + kafkaTopic);
 
     Object recordValue = record.value();
     String payload = "";
     Topic topic;
+
+    // Avro decoder
+    DatumReader<Order> reader = new SpecificDatumReader<>(Order.class);
+    Decoder decoder = null;
+
+    if (recordValue instanceof byte[]) {
+      try {
+        decoder = DecoderFactory.get()
+                .jsonDecoder(Order.getClassSchema(), new String((byte[]) recordValue, StandardCharsets.UTF_8 ));
+        Order deSerializedAvroJson = reader.read(null, decoder);
+        topic = JCSMPFactory.onlyInstance().createTopic("test/kroger/" + deSerializedAvroJson.get(4));
+        log.info("================ Topic: " + topic);
+        //log.info("Current Order Department: " + deSerializedAvroJson.get(4));
+
+        // Also include topic in dynamicDestination header
+        SDTMap userHeader = JCSMPFactory.onlyInstance().createMap();
+        try {
+          userHeader.putString("k_topic", kafkaTopic);
+          userHeader.putInteger("k_partition", record.kafkaPartition());
+          userHeader.putLong("k_offset", record.kafkaOffset());
+          userHeader.putDestination("dynamicDestination", topic);
+        } catch (SDTException e) {
+          log.info("Received Solace SDTException {}, with the following: {} ",
+                  e.getCause(), e.getStackTrace());
+        }
+        msg.setProperties(userHeader);
+        msg.writeAttachment((byte[]) recordValue);
+      } catch (IOException e) {
+        log.error("Deserialization error " + e.getMessage());
+      }
+
+    }
+
+    /* Original example parsing code */
+    /*
     if (recordValue instanceof byte[]) {
       payload = new String((byte[]) recordValue, StandardCharsets.UTF_8);
     } else if (recordValue instanceof ByteBuffer) {
       payload = new String(((ByteBuffer) recordValue).array(),StandardCharsets.UTF_8);
     }
     log.debug("================ Payload: " + payload);
-    
+
     String busId = payload.substring(0, 4);
     String busMsg = payload.substring(5, payload.length());
     log.debug("================ Bus message: " + busMsg);
@@ -91,7 +134,7 @@ public class SolDynamicDestinationRecordProcessor implements SolRecordProcessorI
     }
     msg.setProperties(userHeader);
     msg.writeAttachment(busMsg.getBytes(StandardCharsets.UTF_8));
-    
+    */
     return msg;
   }
 

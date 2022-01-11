@@ -60,6 +60,8 @@ dependencies {
     testImplementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.16.0'
     compile "org.apache.kafka:connect-api:$kafkaVersion"
     compile "com.solacesystems:sol-jcsmp:$solaceJavaAPIVersion"
+    implementation 'org.apache.avro:avro:1.10.2'
+
 }
 
 pmd {
